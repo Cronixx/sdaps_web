@@ -43,7 +43,7 @@ What is missing:
 ## Installation (on Ubuntu)
 **Dependencies (for sdaps and sdaps_web):**
 
-`sudo apt install git python3-virtualenv virtualenv python3-pkgconfig python3-dev python3-distutils-extra rabbitmq-server libtiff-dev libglib2.0-dev libgirepository1.0-dev libcairo2-dev python3-cairo-dev sqlite3`
+`sudo apt install git python3-virtualenv virtualenv python3-pkgconfig python3-dev python3-distutils-extra rabbitmq-server libtiff-dev libglib2.0-dev libgirepository1.0-dev libcairo2-dev python3-cairo-dev sqlite3 texlive-latex-extra`
 
 (This dependency list is not complete. If you want to make sure everything is working and you are on Ubuntu, you can additionally install the PPA: https://sdaps.org/getting-started/ )
 
