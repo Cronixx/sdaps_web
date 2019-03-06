@@ -36,7 +36,7 @@ from django.http import HttpResponse, HttpResponseRedirect, Http404
 from django.core.files.base import ContentFile
 from wsgiref.util import FileWrapper
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render
 
 from django.template import Context, loader
 
@@ -54,25 +54,7 @@ from sdaps import csvdata
 from . import buddies
 import cairo
 
-def get_survey_or_404(request, slug, change=False, delete=False, review=False, upload=False):
-    obj = get_object_or_404(models.Survey, slug=slug)
-
-    if change:
-        if not request.user.has_perm('sdaps_ctl.change_survey'):
-            raise Http404
-    if delete:
-        if not request.user.has_perm('sdaps_ctl.delete_survey'):
-            raise Http404
-    if review:
-        if not request.user.has_perm('sdaps_ctl.review_survey'):
-            raise Http404
-    if upload:
-        if not request.user.has_perm('sdaps_ctl.change_uploadedfile'):
-            raise Http404
-    if not SurveyAdmin.has_permissions(request, obj):
-        raise Http404
-
-    return obj
+from .selectors import get_survey, get_initialized_survey, get_non_initialized_survey, get_survey_list
 
 class LoginRequiredMixin(object):
     @classmethod
@@ -86,12 +68,12 @@ class SurveyList(LoginRequiredMixin, generic.ListView):
     context_object_name = 'survey_list'
 
     def get_queryset(self):
-        return SurveyAdmin.filter(self.request, models.Survey.objects).order_by('name')
+        return get_survey_list(self.request)
 
 @login_required
 def survey_add_images(request, slug):
-    if request.method == "POST":
-        survey = get_survey_or_404(request, slug, change=True)
+    survey = get_survey(request, slug, change=True)
+    if request.method == "POST" and survey:
 
         # Queue file addition
         survey_id = str(survey.id)
@@ -105,12 +87,8 @@ def survey_add_images(request, slug):
 
 @login_required
 def survey_build(request, slug):
-    if request.method == "POST":
-        survey = get_survey_or_404(request, slug, change=True)
-
-        if survey.initialized:
-            raise Http404
-
+    survey = get_initialized_survey(request, slug, change=True)
+    if request.method == "POST" and survey:
         # Queue project creation
         tasks.build_survey.apply_async(args=(survey.id, ))
 
@@ -121,12 +99,8 @@ def survey_build(request, slug):
 
 @login_required
 def survey_report(request, slug):
-    if request.method == "POST":
-        survey = get_survey_or_404(request, slug, change=True)
-
-        if not survey.initialized:
-            raise Http404
-
+    survey = get_initialized_survey(request, slug, change=True)
+    if request.method == "POST" and survey:
         # Queue project creation
         tasks.generate_report.apply_async(args=(survey.id, ))
 
@@ -177,10 +151,10 @@ class SurveyDetail(LoginRequiredMixin, generic.DetailView):
 
 # File download last modified test
 def survey_file_last_modification(request, slug, filename):
-    survey = get_survey_or_404(request, slug)
+    survey = get_survey(request, slug)
 
     filename = os.path.join(survey.path, filename)
-    if not os.path.isfile(filename):
+    if not os.path.isfile(filename) or not survey:
         raise Http404
 
     return datetime.datetime.utcfromtimestamp((os.stat(filename).st_ctime))
@@ -190,7 +164,7 @@ def survey_file_last_modification(request, slug, filename):
 @last_modified(lambda *args, **kwargs: survey_file_last_modification(*args, filename='questionnaire.pdf', **kwargs))
 @login_required
 def questionnaire_download(request, slug):
-    survey = get_survey_or_404(request, slug)
+    survey = get_survey(request, slug)
 
     filename = os.path.join(survey.path, 'questionnaire.pdf')
     if not os.path.isfile(filename):
@@ -206,7 +180,7 @@ def questionnaire_download(request, slug):
 @last_modified(lambda *args, **kwargs: survey_file_last_modification(*args, filename='report.pdf', **kwargs))
 @login_required
 def report_download(request, slug):
-    survey = get_survey_or_404(request, slug)
+    survey = get_survey(request, slug)
 
     filename = os.path.join(survey.path, 'report.pdf')
     if not os.path.isfile(filename):
@@ -221,7 +195,7 @@ def report_download(request, slug):
 @last_modified(lambda *args, **kwargs: survey_file_last_modification(*args, filename='questionnaire.tex', **kwargs))
 @login_required
 def questionnaire_tex_download(request, slug):
-    survey = get_survey_or_404(request, slug)
+    survey = get_survey(request, slug)
 
     filename = os.path.join(survey.path, 'questionnaire.tex')
     if not os.path.isfile(filename):
@@ -240,9 +214,8 @@ class SurveyUpdateView(LoginRequiredMixin, generic.edit.UpdateView):
     success_url = '/surveys'
 
     def get_object(self, queryset=None):
-        self.object = get_object_or_404(models.Survey, slug=self.kwargs['slug'])
-        if self.object.initialized:
-            raise Http404
+        self.object = get_initialized_survey(models.Survey, slug=self.kwargs['slug'])
+
         return self.object
 
     def form_valid(self, form):
@@ -256,7 +229,7 @@ class SurveyUpdateView(LoginRequiredMixin, generic.edit.UpdateView):
 
 @login_required
 def delete(request, slug):
-    survey = get_survey_or_404(request, slug, delete=True)
+    survey = get_survey(request, slug, delete=True)
 
     yes_missing = False
     if request.method == "POST":
@@ -274,31 +247,31 @@ def questionnaire(request, slug):
     when the survey is not initialized for sending in the questionnaire draft
     via the editor. The json gets written as latex and then rendered for the
     editor preview.'''
-    survey = get_survey_or_404(request, slug, change=True)
 
     # Get CSRF token, so that cookie will be included
     csrf.get_token(request)
 
-    if request.method == 'POST':
-        if survey.initialized:
-            raise Http404
-        else:
-            survey.questionnaire = request.read()
-            survey.save()
+    survey = get_non_initialized_survey(request, slug, change=True)
+    survey_get = get_survey(request, slug, change=True)
+    if request.method == 'POST' and survey:
+        survey.questionnaire = request.read()
+        survey.save()
 
-            survey_id = str(survey.id)
-            if tasks.write_questionnaire.apply_async(args=(survey_id, )):
-                tasks.render_questionnaire.apply_async(args=(survey_id, ))
-            return HttpResponse(status=202)
+        survey_id = str(survey.id)
+        if tasks.write_questionnaire.apply_async(args=(survey_id, )):
+            tasks.render_questionnaire.apply_async(args=(survey_id, ))
+        return HttpResponse(status=202)
 
-    elif request.method == 'GET':
+    elif request.method == 'GET' and survey_get:
         return HttpResponse(survey.questionnaire, content_type="application/json")
+    else:
+        raise Http404
 
 @login_required
 def survey_image(request, slug, filenum, page):
     # This function does not open the real SDAPS survey, as unpickling the data
     # is way to inefficient.
-    survey = get_survey_or_404(request, slug, review=True)
+    survey = get_survey(request, slug, review=True)
 
     image_file = os.path.join(survey.path, "%s.tif" % (filenum,))
 
@@ -318,12 +291,7 @@ def survey_image(request, slug, filenum, page):
 
 @login_required
 def survey_review(request, slug):
-    djsurvey = get_survey_or_404(request, slug, review=True)
-
-    if not djsurvey.initialized:
-        raise Http404
-
-    #with models.LockedSurvey(djsurvey.id, 5):
+    djsurvey = get_initialized_survey(request, slug, review=True)
 
     survey = SDAPSSurvey.load(djsurvey.path)
 
@@ -336,22 +304,12 @@ def survey_review(request, slug):
 
 @login_required
 def survey_review_sheet(request, slug, sheet):
-    djsurvey = get_survey_or_404(request, slug, review=True)
+    djsurvey = get_initialized_survey(request, slug, review=True)
 
     # Get CSRF token, so that cookie will be included
     csrf.get_token(request)
 
     sheet = int(sheet)
-
-    # XXX: Throw sane error in this case!
-    #if djsurvey.active_task:
-    #    raise Http404
-
-    if not djsurvey.initialized:
-        raise Http404
-
-    # Now this is getting hairy, we need to unpickle the data :-(
-    #with models.LockedSurvey(djsurvey.id, 5):
 
     survey = SDAPSSurvey.load(djsurvey.path)
 
@@ -389,10 +347,7 @@ def survey_review_sheet(request, slug, sheet):
 @login_required
 def csv_download(request, slug):
     '''GET gives you the csv-file from an initialized survey.'''
-    djsurvey = get_survey_or_404(request, slug, change=True)
-
-    if not djsurvey.initialized:
-        raise Http404
+    djsurvey = get_initialized_survey(request, slug, change=True)
 
     survey = SDAPSSurvey.load(djsurvey.path)
 
@@ -405,20 +360,17 @@ def csv_download(request, slug):
 
 @login_required
 def survey_upload(request, slug):
-    survey = get_survey_or_404(request, slug, upload=True)
+    survey = get_initialized_survey(request, slug, upload=True)
+    if survey:
+        csrf.get_token(request)
 
-    csrf.get_token(request)
+        context_dict = {
+            'survey' : survey,
+        }
 
-    if not survey.initialized:
+        return render(request, 'survey_upload.html', context_dict)
+    else:
         raise Http404
-
-    context_dict = {
-        'survey' : survey,
-    }
-
-    return render(request, 'survey_upload.html', context_dict)
-
-
 
 class SurveyUploadPost(LoginRequiredMixin, generic.View):
 
@@ -430,7 +382,7 @@ class SurveyUploadPost(LoginRequiredMixin, generic.View):
         return True
 
     def post(self, request, slug):
-        survey = get_survey_or_404(self.request, slug, upload=True)
+        survey = get_survey(self.request, slug, upload=True)
 
         #upload_id = request.POST.get('upload_id')
 
@@ -507,7 +459,7 @@ class SurveyUploadPost(LoginRequiredMixin, generic.View):
 
 
     def get(self, request, slug):
-        survey = get_survey_or_404(self.request, slug, upload=True)
+        survey = get_survey(self.request, slug, upload=True)
 
         return self.generate_response(survey)
 
@@ -515,7 +467,7 @@ class SurveyUploadPost(LoginRequiredMixin, generic.View):
 class SurveyUploadFile(LoginRequiredMixin, generic.View):
 
     def delete(self, request, slug, filename):
-        survey = get_survey_or_404(self.request, slug, upload=True)
+        survey = get_survey(self.request, slug, upload=True)
 
         upload = models.UploadedFile.objects.filter(survey=survey, filename=filename).first()
         upload.delete()
@@ -524,7 +476,7 @@ class SurveyUploadFile(LoginRequiredMixin, generic.View):
 
 
     def get(self, request, slug, filename):
-        survey = get_survey_or_404(self.request, slug, upload=True)
+        survey = get_survey(self.request, slug, upload=True)
 
         upload = models.UploadedFile.objects.filter(survey=survey, filename=filename).first()
 

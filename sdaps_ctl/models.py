@@ -40,12 +40,8 @@ class Survey(models.Model):
     class Meta:
         permissions = (("review_survey", "Can review surveys"),)
 
-    slug = models.SlugField(unique=True)
     name = models.CharField(max_length=100)
-
-    #: Whether the project is initilized (and the questionnaire cannot be
-    #: modified anymore).
-    initialized = models.BooleanField(default=False)
+    slug = models.SlugField(unique=True)
 
     # (cached) properties of this survey
 
@@ -58,17 +54,28 @@ class Survey(models.Model):
 
     questionnaire = models.BinaryField(default=b'[]')
 
-    owner = models.ForeignKey(User, on_delete=models.CASCADE)
-    group = models.ForeignKey(Group, null=True, blank=True, on_delete=models.CASCADE)
+    #: Whether the project is initialized (and the questionnaire cannot be
+    #: modified anymore).
+    initialized = models.BooleanField(default=False)
+
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+    group = models.ForeignKey(
+        Group,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE
+    )
 
     @property
     def path(self):
         return os.path.join(settings.SDAPS_PROJECT_ROOT, str(self.id))
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = get_random_string(6,'ABCDEFGHIJKLMNOPQVWXYZ0123456789')
-        super().save(*args, **kwargs)
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 UPLOADING = 0
 FINISHED = 1
@@ -139,36 +146,3 @@ class UploadedFile(models.Model):
                 self.status = FINISHED
 
         self.save()
-
-# ---------------------------------------------------------
-
-def create_survey_dir(sender, instance, created, **kwargs):
-    if not created:
-        return
-
-    tasks.create_survey(instance)
-
-def move_survey_dir(sender, instance, using, **kwargs):
-    """This signal handler moves the project directory into the "deleted"
-    directory whenever a survey is removed from the database."""
-
-    path = instance.path
-
-    if path and os.path.isdir(path):
-        delpath = os.path.join(settings.SDAPS_PROJECT_ROOT, 'deleted')
-
-        # Make sure the "deleted" directory exists
-        if not os.path.isdir(delpath):
-            os.mkdir(delpath)
-
-        # And rename/move the old directory
-        os.rename(path, os.path.join(delpath, datetime.datetime.now().strftime('%Y%m%d-%H%M') + '-' + str(instance.id)))
-
-signals.post_save.connect(create_survey_dir, sender=Survey)
-signals.post_delete.connect(move_survey_dir, sender=Survey)
-
-def delete_uploaded_file(sender, instance, using, **kwargs):
-    instance.file.delete(save=False)
-
-signals.post_delete.connect(delete_uploaded_file, sender=UploadedFile)
-

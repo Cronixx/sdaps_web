@@ -5,31 +5,31 @@ from sdaps_ctl.views import *
 
 urlpatterns = [
         # generalprepost_matters: General views and Pre-/Postprocessing
-        path('', SurveyList.as_view(), name='surveys'),
-        path('create/', permission_required('sdaps_ctl.add_survey')(SurveyCreateView.as_view()), name='survey_create'),
-        path('<slug:slug>/', SurveyDetail.as_view(), name='survey_overview'),
-        path('<slug:slug>/delete/', delete, name='survey_delete'),
+        path(route='', view=SurveyList.as_view(), name='surveys'),
+        path(route='create/', view=permission_required('sdaps_ctl.add_survey')(SurveyCreateView.as_view()), name='survey_create'),
+        path(route='<slug:slug>/', view=SurveyDetail.as_view(), name='survey_overview'),
+        path(route='<slug:slug>/delete/', view=delete, name='survey_delete'),
 
         # designinit_matter: Designing the questionnaire and initializing
-        path('<slug:slug>/edit/', SurveyUpdateView.as_view(), name='questionnaire_edit'),
-        path('<slug:slug>/edit/questionnaire/', questionnaire, name='questionnaire_post'),
-        path('<slug:slug>/questionnaire.pdf', questionnaire_download, name='questionnaire_download'),
-        path('<slug:slug>/questionnaire.tex', questionnaire_tex_download, name='questionnaire_tex_download'),
-        path('<slug:slug>/build/', survey_build, name='survey_build'),
+        path(route='<slug:slug>/edit/', view=SurveyUpdateView.as_view(), name='questionnaire_edit'),
+        path(route='<slug:slug>/edit/questionnaire/', view=questionnaire, name='questionnaire_post'),
+        path(route='<slug:slug>/questionnaire.pdf', view=questionnaire_download, name='questionnaire_download'),
+        path(route='<slug:slug>/questionnaire.tex', view=questionnaire_tex_download, name='questionnaire_tex_download'),
+        path(route='<slug:slug>/build/', view=survey_build, name='survey_build'),
 
         # upload_matter: Uploading scans for review
-        path('<slug:slug>/add_images/', survey_add_images, name='survey_add_images'),
-        path('<slug:slug>/upload/', survey_upload, name='survey_upload'),
-        path('<slug:slug>/upload/post/', SurveyUploadPost.as_view(), name='survey_upload_post'),
-        re_path(r'^(?P<slug>\w+)/upload/post/(?P<filename>.+)$', SurveyUploadFile.as_view(), name='survey_upload_file'),
+        path(route='<slug:slug>/add_images/', view=survey_add_images, name='survey_add_images'),
+        path(route='<slug:slug>/upload/', view=survey_upload, name='survey_upload'),
+        path(route='<slug:slug>/upload/post/', view=SurveyUploadPost.as_view(), name='survey_upload_post'),
+        re_path(route=r'^(?P<slug>\w+)/upload/post/(?P<filename>.+)$', view=SurveyUploadFile.as_view(), name='survey_upload_file'),
 
         # review_matter: Review the scans
-        path('<slug:slug>/review/', survey_review, name='survey_review'),
-        path('<slug:slug>/review/<int:sheet>/', survey_review_sheet, name='survey_review_sheet'),
-        path('<slug:slug>/images/<int:filenum>/<int:page>/', survey_image, name='survey_image'),
+        path(route='<slug:slug>/review/', view=survey_review, name='survey_review'),
+        path(route='<slug:slug>/review/<int:sheet>/', view=survey_review_sheet, name='survey_review_sheet'),
+        path(route='<slug:slug>/images/<int:filenum>/<int:page>/', view=survey_image, name='survey_image'),
 
         # results_matters: Generate results and reports
-        path('<slug:slug>/report/', survey_report, name='survey_report'),
-        path('<slug:slug>/report.pdf', report_download, name='report_download'),
-        path('<slug:slug>/data.csv', csv_download, name='csv_download'),
+        path(route='<slug:slug>/report/',  view=survey_report, name='survey_report'),
+        path(route='<slug:slug>/report.pdf', view=report_download, name='report_download'),
+        path(route='<slug:slug>/data.csv', view=csv_download, name='csv_download'),
     ]
